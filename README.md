@@ -13,7 +13,7 @@ What makes it different from Blackjack:
 - Hand cards are a limited resource - once used, they're gone for the game
 - You can see your opponent's total and how many hand cards they have left, but not their values
 
-Full rules are detailed in [`game_rules.md`](game_rules.md)
+Full rules are detailed in [`game_rules.md`](docs/game_rules.md)
 
 ---
 
