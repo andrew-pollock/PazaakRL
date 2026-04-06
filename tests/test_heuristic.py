@@ -1,16 +1,14 @@
 """
 test_heuristic.py - Sense checks for simple_heuristic_agent and heuristic_agent.
 
-Run with:  python test_heuristic.py
-       or:  python -m pytest test_heuristic.py -v
+Run with:  python -m pytest test_heuristic.py -v
+       or:  python -m pytest tests/test_heuristic.py -v
 """
 
-import sys
 import unittest
 
-sys.path.insert(0, ".")
-from game_engine import PazaakGame
-from heuristic import simple_heuristic_agent, heuristic_agent, AgentWrapper
+from pazaakrl.game_engine import PazaakGame
+from pazaakrl.heuristic import simple_heuristic_agent, heuristic_agent, AgentWrapper
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +410,6 @@ class TestAgentsInGameEngine(unittest.TestCase):
         When the heuristic busts and has a rescue card, it plays it before ending
         the turn - so it should never end a turn with total > 20 if preventable.
         """
-        busted_with_rescue = 0
         for seed in range(200):
             game = PazaakGame(make_deck(), make_deck(), seed=seed)
             while game.phase != "game_over":
@@ -460,9 +457,6 @@ class TestWinRates(unittest.TestCase):
 
     def test_simple_beats_random_majority(self):
         """Simple heuristic should beat a stand-on-1 (always-hit) agent most of the time."""
-        import random as _random
-
-        rng = _random.Random(42)
 
         def always_hit(o, g):
             return "hit"

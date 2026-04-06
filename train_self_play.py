@@ -44,13 +44,13 @@ import numpy as np
 from stable_baselines3.common.env_util import make_vec_env
 from sb3_contrib import MaskablePPO
 
-from gymnasium_env import (
+from pazaakrl.gymnasium_env import (
     PazaakGymnasiumEnv,
     observation_to_array,
     int_to_action,
 )
-from heuristic import simple_heuristic_agent, heuristic_agent
-from game_engine import PazaakGame
+from pazaakrl.heuristic import simple_heuristic_agent, heuristic_agent
+from pazaakrl.game_engine import PazaakGame
 from train_vs_heuristic import evaluate_vs_heuristic, TrainingProgressCallback
 
 

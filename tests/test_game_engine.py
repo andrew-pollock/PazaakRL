@@ -2,16 +2,14 @@
 test_game_engine.py - Unit tests for game_engine.py
 
 Run with:  python -m pytest test_game_engine.py -v
-       or:  python test_game_engine.py
+       or:  python -m pytest tests/test_game_engine.py -v
 """
 
-import sys
 import unittest
 import random
 from unittest.mock import patch
 
-sys.path.insert(0, ".")
-from game_engine import PazaakGame
+from pazaakrl.game_engine import PazaakGame
 
 
 # ---------------------------------------------------------------------------
@@ -39,7 +37,6 @@ def play_full_game(seed=0, agent_a=None, agent_b=None):
     Returns the finished PazaakGame instance.
     Default agents: stand on 15+, hit otherwise, never play hand cards.
     """
-    rng = random.Random(seed + 1000)
 
     def default_agent(game):
         p = game.players[game.active_player]
@@ -235,7 +232,6 @@ class TestHandCardPersistence(unittest.TestCase):
         game = PazaakGame(make_deck([-1, -1, -1, -1] + [1] * 16), make_deck(), seed=7)
         # Ensure it's Player A's turn
         self.assertEqual(game.active_player, 0)
-        hand = list(game.players[0].hand)
         played = 0
         for i in range(4):
             if game.players[0].hand[i] is not None:

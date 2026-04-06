@@ -140,8 +140,6 @@ class PazaakGame:
                 f"step() called in phase '{self.phase}'; expected 'decision'."
             )
 
-        player = self.players[self.active_player]
-
         if isinstance(action, tuple) and action[0] == "play":
             self._apply_play_card(action[1])
 

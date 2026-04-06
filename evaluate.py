@@ -40,14 +40,14 @@ from typing import Callable
 import numpy as np
 from sb3_contrib import MaskablePPO
 
-from game_engine import PazaakGame
-from gymnasium_env import (
+from pazaakrl.game_engine import PazaakGame
+from pazaakrl.gymnasium_env import (
     PazaakGymnasiumEnv,
     observation_to_array,
     int_to_action,
     _default_side_deck,
 )
-from heuristic import simple_heuristic_agent, heuristic_agent
+from pazaakrl.heuristic import simple_heuristic_agent, heuristic_agent
 
 
 # ---------------------------------------------------------------------------
@@ -161,7 +161,6 @@ def play_and_log_game(
             continue
 
         round_num += 1
-        round_start_score = list(game.round_wins)
 
         # Play one round by driving the engine directly
         while game.phase not in ("round_over", "game_over"):

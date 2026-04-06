@@ -80,7 +80,7 @@ from typing import Callable, Optional
 import numpy as np
 import gymnasium
 
-from game_engine import PazaakGame
+from pazaakrl.game_engine import PazaakGame
 
 
 # ---------------------------------------------------------------------------
@@ -208,7 +208,7 @@ class PazaakGymnasiumEnv(gymnasium.Env):
         # Lazy import so the module works even when heuristic.py is absent
         # (e.g. during isolated unit testing of the env).
         if opponent_agent is None:
-            from heuristic import simple_heuristic_agent
+            from pazaakrl.heuristic import simple_heuristic_agent
 
             opponent_agent = simple_heuristic_agent
 

@@ -1,8 +1,8 @@
 """
 test_gymnasium_env.py - Basic checks for PazaakGymnasiumEnv.
 
-Run with:  python test_gymnasium_env.py
-       or:  python -m pytest test_gymnasium_env.py -v
+Run with:  python -m pytest test_gymnasium_env.py -v
+       or:  python -m pytest tests/test_gymnasium_env.py -v
 
 gymnasium is not available in this environment, so a minimal stub is
 installed into sys.modules before any imports from gymnasium_env.
@@ -62,10 +62,9 @@ def _install_gymnasium_stub():
 _install_gymnasium_stub()
 
 # Now safe to import our modules
-sys.path.insert(0, ".")
-from game_engine import PazaakGame
-from heuristic import simple_heuristic_agent, heuristic_agent
-from gymnasium_env import (
+from pazaakrl.game_engine import PazaakGame  # noqa: E402
+from pazaakrl.heuristic import simple_heuristic_agent, heuristic_agent  # noqa: E402
+from pazaakrl.gymnasium_env import (  # noqa: E402
     PazaakGymnasiumEnv,
     observation_to_array,
     int_to_action,
@@ -684,7 +683,7 @@ class TestMakeEnv(unittest.TestCase):
     def test_default_opponent_is_simple_heuristic(self):
         env = make_env(wrap_for_maskable_ppo=False)
         env.reset()
-        from heuristic import simple_heuristic_agent as sha
+        from pazaakrl.heuristic import simple_heuristic_agent as sha
 
         self.assertIs(env.opponent_agent, sha)
 

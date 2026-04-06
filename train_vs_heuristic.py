@@ -43,8 +43,8 @@ from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback
 from sb3_contrib import MaskablePPO
 
-from gymnasium_env import PazaakGymnasiumEnv, make_env
-from heuristic import simple_heuristic_agent, heuristic_agent
+from pazaakrl.gymnasium_env import PazaakGymnasiumEnv, make_env
+from pazaakrl.heuristic import simple_heuristic_agent, heuristic_agent
 
 
 # ---------------------------------------------------------------------------
