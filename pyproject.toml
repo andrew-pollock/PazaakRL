@@ -1,0 +1,14 @@
+[project]
+name = "pazaakrl"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "gymnasium>=1.2.3",
+    "numpy>=2.4.4",
+    "ruff>=0.15.9",
+    "sb3-contrib>=2.8.0",
+    "stable-baselines3>=2.8.0",
+    "torch>=2.11.0",
+]
