@@ -48,7 +48,7 @@ from pazaakrl.heuristic import simple_heuristic_agent, heuristic_agent
 
 
 # ---------------------------------------------------------------------------
-# Mixed opponent (Change 3: prevents catastrophic forgetting in Phase 2)
+# Mixed opponent (prevents catastrophic forgetting and overfitting to Heuristic Opponent)
 # ---------------------------------------------------------------------------
 
 
@@ -90,6 +90,7 @@ class MixedOpponent:
 def _random_agent(observation: dict, game) -> str | tuple:
     """Pick a random legal action. Used as a diversity opponent."""
     import random as _rand
+
     legal = game.legal_actions()
     return _rand.choice(legal)
 
@@ -123,11 +124,13 @@ PHASE_CONFIG = {
         load_from=None,
     ),
     2: dict(
-        opponent=MixedOpponent([
-            (0.6, heuristic_agent),
-            (0.3, simple_heuristic_agent),
-            (0.1, _random_agent),
-        ]),
+        opponent=MixedOpponent(
+            [
+                (0.6, heuristic_agent),
+                (0.3, simple_heuristic_agent),
+                (0.1, _random_agent),
+            ]
+        ),
         opponent_name="mixed (60% heuristic / 30% simple / 10% random)",
         timesteps=3_000_000,
         target_win_rate=0.30,
@@ -381,10 +384,12 @@ def train_phase(
             # Phase 1 target is measured against simple heuristic
             pass  # both results already printed
         if wr >= target_wr:
-            print(f"  ✓ Win rate {wr * 100:.1f}% vs full heuristic meets target >{target_wr * 100:.0f}%")
+            print(
+                f"  Win rate {wr * 100:.1f}% vs full heuristic meets target >{target_wr * 100:.0f}%"
+            )
         else:
             print(
-                f"  ✗ Win rate {wr * 100:.1f}% vs full heuristic is BELOW target >{target_wr * 100:.0f}%. "
+                f"  Win rate {wr * 100:.1f}% vs full heuristic is BELOW target >{target_wr * 100:.0f}%. "
                 f"Consider more training or tuning hyperparameters."
             )
 
