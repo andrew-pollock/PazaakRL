@@ -195,7 +195,9 @@ def observation_to_array(obs: dict) -> np.ndarray:
             len(negative_cards) / 4.0,  # [29] negative cards count
             len(positive_cards) / 4.0,  # [30] positive cards count
             float(opp_stood and my_total > opp_total),  # [31] would standing win?
-            max(0, opp_total - 10) / 10.0 if not opp_stood else 0.0,  # [32] opp bust risk
+            max(0, opp_total - 10) / 10.0
+            if not opp_stood
+            else 0.0,  # [32] opp bust risk
         ],
         dtype=np.float32,
     )
