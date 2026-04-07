@@ -131,14 +131,14 @@ class TestSpaces(unittest.TestCase):
         self.assertEqual(self.env.action_space.n, 6)
 
     def test_observation_space_shape(self):
-        self.assertEqual(self.env.observation_space.shape, (16,))
+        self.assertEqual(self.env.observation_space.shape, (33,))
 
     def test_observation_space_dtype(self):
         self.assertEqual(self.env.observation_space.dtype, np.float32)
 
     def test_reset_obs_shape(self):
         obs, _ = self.env.reset()
-        self.assertEqual(obs.shape, (16,))
+        self.assertEqual(obs.shape, (33,))
 
     def test_reset_obs_dtype(self):
         obs, _ = self.env.reset()
@@ -328,7 +328,7 @@ class TestStepHandCard(unittest.TestCase):
 
     def test_hand_card_step_returns_valid_obs(self):
         obs, _, _, _, _ = self.env.step(2 + self.slot)
-        self.assertEqual(obs.shape, (16,))
+        self.assertEqual(obs.shape, (33,))
         self.assertTrue(np.all(np.isfinite(obs)))
 
     def test_hand_card_updates_total(self):
@@ -358,13 +358,13 @@ class TestStepHitStand(unittest.TestCase):
     def test_stand_returns_valid_obs(self):
         env = fresh_env()
         obs, _, _, _, _ = env.step(1)  # stand
-        self.assertEqual(obs.shape, (16,))
+        self.assertEqual(obs.shape, (33,))
         self.assertTrue(np.all(np.isfinite(obs)))
 
     def test_hit_returns_valid_obs(self):
         env = fresh_env()
         obs, _, _, _, _ = env.step(0)
-        self.assertEqual(obs.shape, (16,))
+        self.assertEqual(obs.shape, (33,))
         self.assertTrue(np.all(np.isfinite(obs)))
 
     def test_agent_never_sees_opponent_turn(self):
@@ -405,54 +405,64 @@ class TestRewardShaping(unittest.TestCase):
         return env
 
     def test_mid_game_round_win_reward(self):
-        """Winning a non-final round gives exactly +0.3."""
+        """Winning a non-final round gives +0.3 plus shaping bonus for standing on 20."""
         env = self._setup_state(20, 10, round_wins=(0, 0))
-        _, r, term, _, _ = env.step(1)  # agent stands → wins round
+        _, r, term, _, _ = env.step(1)  # agent stands on 20 → wins round
         self.assertFalse(term)
-        self.assertAlmostEqual(r, 0.3)
+        # +0.3 round win + 0.05 stand 18-20 + 0.05 stand on 20 = 0.4
+        self.assertAlmostEqual(r, 0.4)
 
     def test_mid_game_round_loss_reward(self):
-        """Losing a non-final round gives exactly -0.3."""
+        """Losing a non-final round gives -0.3 (no shaping bonus for standing on 10)."""
         env = self._setup_state(10, 20, round_wins=(0, 0))
         _, r, term, _, _ = env.step(1)
         self.assertFalse(term)
         self.assertAlmostEqual(r, -0.3)
 
     def test_round_draw_reward(self):
-        """A drawn round gives exactly 0.0."""
+        """A drawn round gives shaping bonus only (stand on 15 = no bonus)."""
         env = self._setup_state(15, 15, round_wins=(0, 0))
         _, r, term, _, _ = env.step(1)
         self.assertFalse(term)
         self.assertAlmostEqual(r, 0.0)
 
     def test_game_win_reward(self):
-        """Winning the final round terminates with reward +1.0."""
+        """Winning the final round terminates with game reward + shaping."""
         env = self._setup_state(20, 10, round_wins=(2, 2))
         _, r, term, _, _ = env.step(1)
         self.assertTrue(term)
-        self.assertAlmostEqual(r, 1.0)
+        # +1.0 game win + 0.05 stand 18-20 + 0.05 stand on 20 = 1.1
+        # (round_over is skipped when the round ends the game)
+        self.assertAlmostEqual(r, 1.1)
 
     def test_game_loss_reward(self):
-        """Losing the final round terminates with reward -1.0."""
+        """Losing the final round terminates with game loss reward."""
         env = self._setup_state(10, 20, round_wins=(2, 2))
         _, r, term, _, _ = env.step(1)
         self.assertTrue(term)
+        # -1.0 game loss (no shaping for standing on 10, no round_over for final round)
         self.assertAlmostEqual(r, -1.0)
 
-    def test_hand_card_step_zero_reward(self):
-        """Playing a hand card always yields zero reward."""
+    def test_hand_card_step_reward(self):
+        """Playing a hand card yields 0.0 unless it reaches exactly 20."""
         env = fresh_env()
-        slot = next(i for i, v in enumerate(env.game.players[0].hand) if v is not None)
-        _, r, _, _, _ = env.step(2 + slot)
-        self.assertEqual(r, 0.0)
+        # Find a slot that won't reach exactly 20 (most won't)
+        for i, v in enumerate(env.game.players[0].hand):
+            if v is not None and env.game.players[0].total + v != 20:
+                _, r, _, _, _ = env.step(2 + i)
+                self.assertEqual(r, 0.0)
+                return
+        # If all cards reach 20 (extremely unlikely), skip this test
+        self.skipTest("All hand cards reach 20 in this seed")
 
     def test_total_episode_reward_in_range(self):
-        """Over a full episode the total reward is within [-2, 2]."""
+        """Over a full episode the total reward is within a reasonable range."""
         for seed in range(20):
             env = fresh_env(seed=seed)
             total_r, _ = run_episode(env, rng=np.random.default_rng(seed))
-            self.assertGreaterEqual(total_r, -2.0)
-            self.assertLessEqual(total_r, 2.0)
+            # With shaping rewards, the range is wider than [-2, 2]
+            self.assertGreaterEqual(total_r, -3.0)
+            self.assertLessEqual(total_r, 3.0)
 
 
 # ---------------------------------------------------------------------------
@@ -544,7 +554,7 @@ class TestObservationToArray(unittest.TestCase):
         return game.get_observation(0)
 
     def test_shape(self):
-        self.assertEqual(observation_to_array(self._raw_obs()).shape, (16,))
+        self.assertEqual(observation_to_array(self._raw_obs()).shape, (33,))
 
     def test_dtype(self):
         self.assertEqual(observation_to_array(self._raw_obs()).dtype, np.float32)
@@ -664,7 +674,7 @@ class TestMakeEnv(unittest.TestCase):
     def test_raw_env_resets(self):
         env = make_env(wrap_for_maskable_ppo=False)
         obs, _ = env.reset()
-        self.assertEqual(obs.shape, (16,))
+        self.assertEqual(obs.shape, (33,))
 
     def test_raw_env_has_action_masks(self):
         env = make_env(wrap_for_maskable_ppo=False)

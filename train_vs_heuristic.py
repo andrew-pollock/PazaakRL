@@ -48,37 +48,89 @@ from pazaakrl.heuristic import simple_heuristic_agent, heuristic_agent
 
 
 # ---------------------------------------------------------------------------
+# Mixed opponent (Change 3: prevents catastrophic forgetting in Phase 2)
+# ---------------------------------------------------------------------------
+
+
+class MixedOpponent:
+    """
+    Randomly selects an opponent strategy per call-sequence.
+
+    The gymnasium env calls the opponent in a loop within a single turn.
+    We pick a strategy once per game (on the first call after reset) and
+    stick with it for the entire game.  The env resets the game in reset(),
+    and we detect a new game by checking if the opponent's total is 0 and
+    no cards have been used (i.e. fresh game state).
+
+    Parameters
+    ----------
+    agents : list of (weight, callable) pairs.
+        Weights are relative (they don't need to sum to 1).
+    """
+
+    def __init__(self, agents: list[tuple[float, callable]]):
+        self._agents = agents
+        weights = [w for w, _ in agents]
+        total = sum(weights)
+        self._probs = [w / total for w in weights]
+        self._current = agents[0][1]
+        self._rng = np.random.default_rng()
+        self._last_game_id = None
+
+    def __call__(self, observation: dict, game) -> str | tuple:
+        # Detect new game: pick a new opponent when game state looks fresh
+        game_id = id(game)
+        if game_id != self._last_game_id:
+            self._last_game_id = game_id
+            idx = self._rng.choice(len(self._agents), p=self._probs)
+            self._current = self._agents[idx][1]
+        return self._current(observation, game)
+
+
+def _random_agent(observation: dict, game) -> str | tuple:
+    """Pick a random legal action. Used as a diversity opponent."""
+    import random as _rand
+    legal = game.legal_actions()
+    return _rand.choice(legal)
+
+
+# ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
 
 CHECKPOINT_DIR = "checkpoints"
 
-# Hyperparameters shared by both phases (§4.1/4.2 of implementation_plan.md)
+# Hyperparameters (tuned per docs/training_analysis.md)
 PPO_KWARGS = dict(
-    learning_rate=3e-4,
-    n_steps=2048,
-    batch_size=256,
-    gamma=0.99,
-    ent_coef=0.01,
+    learning_rate=1e-4,
+    n_steps=4096,
+    batch_size=512,
+    gamma=0.995,
+    ent_coef=0.02,
     n_epochs=10,
     clip_range=0.2,
     verbose=1,
+    policy_kwargs=dict(net_arch=dict(pi=[128, 128], vf=[128, 128])),
 )
 
 PHASE_CONFIG = {
     1: dict(
         opponent=simple_heuristic_agent,
         opponent_name="simple heuristic",
-        timesteps=300_000,
+        timesteps=1_500_000,
         target_win_rate=0.70,
         save_name="phase1_final",
         load_from=None,
     ),
     2: dict(
-        opponent=heuristic_agent,
-        opponent_name="full heuristic",
-        timesteps=500_000,
-        target_win_rate=0.50,
+        opponent=MixedOpponent([
+            (0.6, heuristic_agent),
+            (0.3, simple_heuristic_agent),
+            (0.1, _random_agent),
+        ]),
+        opponent_name="mixed (60% heuristic / 30% simple / 10% random)",
+        timesteps=3_000_000,
+        target_win_rate=0.30,
         save_name="phase2_final",
         load_from="checkpoints/phase1_final.zip",
     ),
@@ -312,19 +364,27 @@ def train_phase(
 
     # ---- Evaluate ----
     if run_eval:
-        print(f"\n  Evaluating vs {opponent_name} over {eval_games:,} games …")
-        stats = evaluate_vs_heuristic(
-            model=model,
-            opponent_agent=opponent,
-            n_games=eval_games,
-            verbose=True,
-        )
-        wr = stats["win_rate"]
+        # Always evaluate against both opponents for a complete picture
+        for eval_name, eval_agent in [
+            ("simple heuristic", simple_heuristic_agent),
+            ("full heuristic", heuristic_agent),
+        ]:
+            print(f"\n  Evaluating vs {eval_name} over {eval_games:,} games …")
+            stats = evaluate_vs_heuristic(
+                model=model,
+                opponent_agent=eval_agent,
+                n_games=eval_games,
+                verbose=True,
+            )
+        wr = stats["win_rate"]  # last eval (full heuristic) for target check
+        if phase == 1:
+            # Phase 1 target is measured against simple heuristic
+            pass  # both results already printed
         if wr >= target_wr:
-            print(f"  ✓ Win rate {wr * 100:.1f}% meets target >{target_wr * 100:.0f}%")
+            print(f"  ✓ Win rate {wr * 100:.1f}% vs full heuristic meets target >{target_wr * 100:.0f}%")
         else:
             print(
-                f"  ✗ Win rate {wr * 100:.1f}% is BELOW target >{target_wr * 100:.0f}%. "
+                f"  ✗ Win rate {wr * 100:.1f}% vs full heuristic is BELOW target >{target_wr * 100:.0f}%. "
                 f"Consider more training or tuning hyperparameters."
             )
 

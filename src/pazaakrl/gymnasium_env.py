@@ -21,7 +21,7 @@ Action space (Discrete 6)
 
 Invalid actions are masked via ``action_masks()``.
 
-Observation space (Box, 16 floats)
+Observation space (Box, 33 floats)
 -----------------------------------
   [0]   my_total          / 20
   [1]   opp_total         / 20
@@ -39,14 +39,35 @@ Observation space (Box, 16 floats)
   [13]  opp used card 1   / 6
   [14]  opp used card 2   / 6
   [15]  opp used card 3   / 6
+  [16]  distance to 20           (20 - total) / 20
+  [17]  opp distance to 20       (20 - opp_total) / 20
+  [18]  am I bust?               0 or 1
+  [19]  am I ahead?              0 or 1
+  [20]  can reach exactly 20     0 or 1
+  [21]  best card delta to 20    / 20
+  [22]  have negative cards      0 or 1
+  [23]  can rescue from bust     0 or 1
+  [24]  round win deficit        / 3
+  [25]  opp stood & ahead        0 or 1
+  [26]  cards remaining adv.     / 4
+  [27]  safe to hit              0 or 1
+  [28]  bust prob on next hit    max(0, total-10) / 10
+  [29]  negative cards count     / 4
+  [30]  positive cards count     / 4
+  [31]  would standing win?      0 or 1
+  [32]  opp bust risk            max(0, opp_total-10) / 10
 
 Reward shaping
 --------------
-  Round win   : +0.3
-  Round loss  : -0.3
-  Round draw  :  0.0
-  Game win    : +1.0
-  Game loss   : -1.0
+  Round win        : +0.3
+  Round loss       : -0.3
+  Round draw       :  0.0
+  Game win         : +1.0
+  Game loss        : -1.0
+  Stand on 18-20   : +0.05
+  Stand on 20      : +0.05  (stacks: +0.10 total)
+  Card to reach 20 : +0.05
+  Bust             : -0.10
 
 Rewards accumulate within a single step() call when multiple events
 occur (e.g. the agent wins a round and the game ends together).
@@ -103,8 +124,12 @@ def _default_side_deck() -> list[int]:
 
 def observation_to_array(obs: dict) -> np.ndarray:
     """
-    Convert a ``get_observation()`` dict into the 16-float normalised array
+    Convert a ``get_observation()`` dict into the 33-float normalised array
     used as the RL input.
+
+    Indices 0-15 are the original raw features.
+    Indices 16-32 are derived features that make key relationships explicit
+    (see docs/training_analysis.md for rationale).
 
     This function is intentionally module-level so it can be imported and
     reused by the self-play training script when building observations for
@@ -112,17 +137,39 @@ def observation_to_array(obs: dict) -> np.ndarray:
     """
     hand_slots: list = obs["my_hand"]  # 4 slots: int or None
     opp_used: list = obs["opp_used_hand"]  # 0–4 values already played
+    my_total: int = obs["my_total"]
+    opp_total: int = obs["opp_total"]
+    opp_stood: bool = obs["opp_stood"]
+    my_hand_count: int = obs["my_hand_count"]
+    opp_hand_count: int = obs["opp_hand_count"]
+    my_round_wins: int = obs["my_round_wins"]
+    opp_round_wins: int = obs["opp_round_wins"]
+
+    # Pre-compute hand card properties for derived features
+    active_cards = [c for c in hand_slots if c is not None]
+    negative_cards = [c for c in active_cards if c < 0]
+    positive_cards = [c for c in active_cards if c > 0]
+
+    can_reach_20 = any(my_total + c == 20 for c in active_cards)
+    if active_cards:
+        best_delta = min(abs(20 - (my_total + c)) for c in active_cards)
+    else:
+        best_delta = abs(20 - my_total)
+
+    is_bust = my_total > 20
+    can_rescue = is_bust and any(my_total + c <= 20 for c in negative_cards)
 
     arr = np.array(
         [
-            obs["my_total"] / 20.0,  # [0]
-            obs["opp_total"] / 20.0,  # [1]
+            # --- Original 16 features (indices 0-15) ---
+            my_total / 20.0,  # [0]
+            opp_total / 20.0,  # [1]
             float(obs["my_stood"]),  # [2]
-            float(obs["opp_stood"]),  # [3]
-            obs["my_hand_count"] / 4.0,  # [4]
-            obs["opp_hand_count"] / 4.0,  # [5]
-            obs["my_round_wins"] / 3.0,  # [6]
-            obs["opp_round_wins"] / 3.0,  # [7]
+            float(opp_stood),  # [3]
+            my_hand_count / 4.0,  # [4]
+            opp_hand_count / 4.0,  # [5]
+            my_round_wins / 3.0,  # [6]
+            opp_round_wins / 3.0,  # [7]
             (hand_slots[0] if hand_slots[0] is not None else 0) / 6.0,  # [8]
             (hand_slots[1] if hand_slots[1] is not None else 0) / 6.0,  # [9]
             (hand_slots[2] if hand_slots[2] is not None else 0) / 6.0,  # [10]
@@ -131,6 +178,24 @@ def observation_to_array(obs: dict) -> np.ndarray:
             (opp_used[1] if len(opp_used) > 1 else 0) / 6.0,  # [13]
             (opp_used[2] if len(opp_used) > 2 else 0) / 6.0,  # [14]
             (opp_used[3] if len(opp_used) > 3 else 0) / 6.0,  # [15]
+            # --- Derived features (indices 16-32) ---
+            (20 - my_total) / 20.0,  # [16] distance to 20
+            (20 - opp_total) / 20.0,  # [17] opponent distance to 20
+            float(is_bust),  # [18] am I bust?
+            float(my_total > opp_total),  # [19] am I ahead?
+            float(can_reach_20),  # [20] can reach exactly 20
+            best_delta / 20.0,  # [21] best card delta to 20
+            float(len(negative_cards) > 0),  # [22] have negative cards
+            float(can_rescue),  # [23] can rescue from bust
+            (opp_round_wins - my_round_wins) / 3.0,  # [24] round win deficit
+            float(opp_stood and opp_total > my_total),  # [25] opp stood & ahead
+            (my_hand_count - opp_hand_count) / 4.0,  # [26] cards remaining advantage
+            float(my_total <= 10),  # [27] safe to hit (can't bust)
+            max(0, my_total - 10) / 10.0,  # [28] bust probability on next hit
+            len(negative_cards) / 4.0,  # [29] negative cards count
+            len(positive_cards) / 4.0,  # [30] positive cards count
+            float(opp_stood and my_total > opp_total),  # [31] would standing win?
+            max(0, opp_total - 10) / 10.0 if not opp_stood else 0.0,  # [32] opp bust risk
         ],
         dtype=np.float32,
     )
@@ -220,12 +285,12 @@ class PazaakGymnasiumEnv(gymnasium.Env):
         # Action space: 6 discrete actions (hit, stand, play slots 0-3)
         self.action_space = gymnasium.spaces.Discrete(6)
 
-        # Observation space: 16 normalised floats
+        # Observation space: 33 normalised floats (16 raw + 17 derived)
         # Most values map to [-1, 1]; totals can go slightly negative (rare).
         self.observation_space = gymnasium.spaces.Box(
-            low=-1.0,
+            low=-2.0,
             high=2.0,  # totals > 20 are possible before bust check fires
-            shape=(16,),
+            shape=(33,),
             dtype=np.float32,
         )
 
@@ -272,15 +337,32 @@ class PazaakGymnasiumEnv(gymnasium.Env):
 
         engine_action = int_to_action(int(action))
 
+        # Capture total before the action for shaping reward calculation
+        total_before = self.game.players[0].total
+
         # Apply the agent's action to the engine
         self.game.step(engine_action)
 
-        # --- Hand card played: return immediately, no reward, not done ---
+        # --- Hand card played: small shaping reward, not done ---
         if isinstance(engine_action, tuple):
-            return self._get_obs(), 0.0, False, False, self._get_info()
+            shaping = 0.0
+            total_after = self.game.players[0].total
+            if total_after == 20:
+                shaping = 0.05  # played a card to reach exactly 20
+            return self._get_obs(), shaping, False, False, self._get_info()
 
         # --- Hit or stand: drive the game until it's the agent's turn again ---
         reward = 0.0
+
+        # Shaping reward for the agent's hit/stand decision
+        my_total = self.game.players[0].total
+        if engine_action == "stand":
+            if 18 <= my_total <= 20:
+                reward += 0.05  # good stand range
+            if my_total == 20:
+                reward += 0.05  # perfect stand (0.10 total for standing on 20)
+        if my_total > 20:
+            reward -= 0.1  # bust penalty
 
         while True:
             # Game over?
