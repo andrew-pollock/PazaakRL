@@ -21,7 +21,7 @@ Full rules are detailed in [`game_rules.md`](docs/game_rules.md)
 
 ```
 game_engine.py          Pure Python game logic - no ML dependencies
-heuristic.py            Two rule-based opponents (simple and full)
+heuristic.py            Three rule-based opponents (simple, aggressive, and full)
 gymnasium_env.py        Gymnasium wrapper for RL training
 train_vs_heuristic.py   Training against basic heuristic opponents
 train_self_play.py      Training against older versions of itself
@@ -37,9 +37,9 @@ Training proceeds in three graduated phases:
 
 | Phase | Opponent | Steps | Target |
 |-------|----------|-------|--------|
-| 1 | Simple heuristic (stand on 17+) | 300k | >70% win rate |
-| 2 | Full heuristic (uses hand cards) | 500k | >50% win rate |
-| 3 | Self-play against snapshot pool | 200k × 5 | - |
+| 1 | Simple heuristic (stand on 17+) | 1.5M | >70% win rate |
+| 2 | Mix of full heuristic, simple, and random | 3M | >30% win rate |
+| 3 | Self-play against snapshot pool | 1M × 10 | - |
 
 Phases 1 and 2 use `train_vs_heuristic.py`. Phase 3 (self-play) is `train_self_play.py`.
 
@@ -48,7 +48,7 @@ Phases 1 and 2 use `train_vs_heuristic.py`. Phase 3 (self-play) is `train_self_p
 ## Installation
 
 ```bash
-uv add gymnasium stable-baselines3 sb3-contrib numpy torch
+uv sync
 ```
 
 ---
@@ -87,9 +87,10 @@ Checkpoints are saved to `checkpoints/` as `phase1_final.zip` and `phase2_final.
 
 | File | Purpose |
 |------|---------|
-| `game_engine.py` | Core game logic |
-| `heuristic.py` | `simple_heuristic_agent`, `heuristic_agent` |
-| `gymnasium_env.py` | `PazaakGymnasiumEnv`, `make_env()`, `observation_to_array()` |
-| `train_vs_heuristic.py` | Phase 1 & 2 training |
+| `game_engine.py` | Core game logic. Defines the PazaakGame class. |
+| `heuristic.py` | Defines the rules-based opponents to play against. |
+| `gymnasium_env.py` | Gymnasium wrapper for PazaakGame. Defines Action and Obs spaces, plus reward shaping. |
+| `train_vs_heuristic.py` | Initial RL training (Phase 1 + 2) |
+| `train_self_play.py` | Continues training the model from Phase 1+2 against a mixture of the 3 heuristics and older versions of itself. |
 | `game_rules.md` | Full game rules |
 | `implementation_plan.md` | Full technical design |
