@@ -163,13 +163,13 @@ class DynamicOpponentEnv(PazaakGymnasiumEnv):
 class OpponentPool:
     """
     Manages the mixed opponent pool for self-play.
- 
+
     At any time the pool contains:
       - simple_heuristic_agent      (always present)
       - aggressive_heuristic_agent  (always present)
       - heuristic_agent             (always present)
       - up to MAX_POOL_SNAPSHOTS snapshot agents (loaded on demand)
- 
+
     Sampling:
       - 15% → simple heuristic
       - 15% → aggressive heuristic
@@ -202,13 +202,13 @@ class OpponentPool:
             return random.choice(
                 [simple_heuristic_agent, aggressive_heuristic_agent, heuristic_agent]
             )
- 
+
         choice = random.choices(
             ["simple", "aggressive", "full", "snapshot"],
             weights=OPPONENT_WEIGHTS,
             k=1,
         )[0]
- 
+
         if choice == "simple":
             return simple_heuristic_agent
         if choice == "aggressive":
@@ -254,6 +254,26 @@ def evaluate_vs_snapshot(
 # ---------------------------------------------------------------------------
 
 
+def _discover_snapshots(checkpoint_dir: str) -> list[str]:
+    """
+    Return all snapshot_N.zip files in *checkpoint_dir*, sorted by N ascending.
+
+    Only files whose names match the pattern ``snapshot_<int>.zip`` are
+    included; ``self_play_final.zip`` and other checkpoints are ignored so
+    the pool only contains true per-iteration snapshots.
+    """
+    import re
+
+    pattern = re.compile(r"^snapshot_(\d+)\.zip$")
+    matches = []
+    for fname in os.listdir(checkpoint_dir):
+        m = pattern.match(fname)
+        if m:
+            matches.append((int(m.group(1)), os.path.join(checkpoint_dir, fname)))
+    matches.sort(key=lambda x: x[0])
+    return [path for _, path in matches]
+
+
 def run_self_play(
     load_from: str = DEFAULT_LOAD_FROM,
     iterations: int = DEFAULT_ITERATIONS,
@@ -261,18 +281,23 @@ def run_self_play(
     n_envs: int = 8,
     run_eval: bool = True,
     eval_games: int = 2500,
+    warm_start: bool = False,
 ) -> MaskablePPO:
     """
     Execute the full self-play training loop.
 
     Parameters
     ----------
-    load_from           : Path to Phase 2 checkpoint to start from.
+    load_from           : Path to the checkpoint to start from.
     iterations          : Number of self-play iterations.
     timesteps_per_iter  : Training steps per iteration.
     n_envs              : Parallel environments.
     run_eval            : Whether to evaluate after each iteration.
     eval_games          : Games per evaluation.
+    warm_start          : If True, scan CHECKPOINT_DIR for existing
+                          snapshot_N.zip files and pre-populate the pool
+                          before training begins. Useful when resuming from
+                          a previous run's self_play_final.zip.
 
     Returns
     -------
@@ -289,22 +314,38 @@ def run_self_play(
     print(f"{'=' * 60}\n")
 
     # ------------------------------------------------------------------ #
-    # 1. Load Phase 2 model and save as snapshot_0
+    # 1. Load checkpoint and seed the snapshot pool
     # ------------------------------------------------------------------ #
     if not os.path.exists(load_from):
         raise FileNotFoundError(
-            f"Phase 2 checkpoint not found: '{load_from}'. "
-            f"Run train_vs_heuristic.py --phase 2 first."
+            f"Checkpoint not found: '{load_from}'. "
+            f"Run train_vs_heuristic.py --phase 2 first, or point --load at "
+            f"an existing checkpoint."
         )
 
     pool = OpponentPool()
 
+    if warm_start:
+        # Pre-populate the pool with any snapshot_N.zip files already on disk,
+        # up to MAX_POOL_SNAPSHOTS (oldest are naturally evicted by add_snapshot).
+        existing = _discover_snapshots(CHECKPOINT_DIR)
+        if existing:
+            print(f"  Warm-start: found {len(existing)} existing snapshot(s) on disk.")
+            for path in existing:
+                pool.add_snapshot(path)
+            print()
+        else:
+            print(
+                "  Warm-start: no existing snapshots found; pool will be seeded from checkpoint.\n"
+            )
+
+    # Always register the load_from checkpoint as snapshot_0 so the loaded
+    # model itself is always in the pool, even on a warm start.
     snapshot_0_path = os.path.join(CHECKPOINT_DIR, "snapshot_0.zip")
-    # MaskablePPO.load() then .save() to normalise the path
     _seed_model = MaskablePPO.load(load_from)
     _seed_model.save(snapshot_0_path)
     pool.add_snapshot(snapshot_0_path)
-    print("  Saved Phase 2 model as snapshot_0\n")
+    print("  Saved loaded checkpoint as snapshot_0\n")
     del _seed_model
 
     # ------------------------------------------------------------------ #
@@ -492,6 +533,16 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Skip evaluation after each iteration.",
     )
+    parser.add_argument(
+        "--warm-start",
+        action="store_true",
+        help=(
+            "Pre-populate the opponent pool with any snapshot_N.zip files "
+            "already in the checkpoint directory. Use this when resuming from "
+            "a previous run (e.g. --load checkpoints/self_play_final.zip) so "
+            "the pool is not reset to a single snapshot."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -504,6 +555,7 @@ def main() -> None:
         n_envs=args.n_envs,
         run_eval=not args.no_eval,
         eval_games=args.eval_games,
+        warm_start=args.warm_start,
     )
 
 
