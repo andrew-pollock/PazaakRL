@@ -4,32 +4,25 @@ train_self_play.py - Phase 3 self-play training for Pazaak RL.
 Loads the Phase 2 checkpoint and progressively improves the agent by playing
 against a mixed opponent pool:
 
-    10%  simple heuristic
-    10%  full heuristic
-    80%  random snapshot from the pool (up to 10 most recent)
+     5%  simple heuristic
+    15%  aggressive heuristic
+    25%  full heuristic
+    55%  random snapshot from the pool (up to 10 most recent)
 
 Each self-play iteration:
-  1. Trains for 200,000 timesteps against the current pool
+  1. Trains for 1,000,000 timesteps against the current pool
   2. Evaluates vs the full heuristic and the latest snapshot
   3. Saves the model as a new snapshot and adds it to the pool
 
 Usage
 -----
-# Default: 5 iterations, loads checkpoints/phase2_final.zip
+# Default: 10 iterations, loads checkpoints/phase2_final.zip
 python train_self_play.py
 
 # Custom:
 python train_self_play.py --iterations 8 --load checkpoints/phase2_final.zip
 python train_self_play.py --timesteps 300000 --n-envs 4
 python train_self_play.py --no-eval
-
-Dependencies
-------------
-    gymnasium>=0.29
-    stable-baselines3>=2.1
-    sb3-contrib>=2.1
-    numpy
-    torch
 """
 
 from __future__ import annotations
@@ -49,7 +42,11 @@ from pazaakrl.gymnasium_env import (
     observation_to_array,
     int_to_action,
 )
-from pazaakrl.heuristic import simple_heuristic_agent, heuristic_agent
+from pazaakrl.heuristic import (
+    simple_heuristic_agent,
+    aggressive_heuristic_agent,
+    heuristic_agent,
+)
 from pazaakrl.game_engine import PazaakGame
 from train_vs_heuristic import evaluate_vs_heuristic, TrainingProgressCallback
 
@@ -60,22 +57,23 @@ from train_vs_heuristic import evaluate_vs_heuristic, TrainingProgressCallback
 
 CHECKPOINT_DIR = "checkpoints"
 DEFAULT_LOAD_FROM = "checkpoints/phase2_final.zip"
-DEFAULT_ITERATIONS = 5
-DEFAULT_TIMESTEPS = 200_000
+DEFAULT_ITERATIONS = 10
+DEFAULT_TIMESTEPS = 1_000_000
 MAX_POOL_SNAPSHOTS = 10  # keep at most this many snapshots in the pool
 
-# Probability weights: [simple_heuristic, full_heuristic, snapshot_pool]
-OPPONENT_WEIGHTS = [0.10, 0.10, 0.80]
+# Probability weights: [simple_heuristic, aggressive_heuristic, full_heuristic, snapshot_pool]
+OPPONENT_WEIGHTS = [0.05, 0.15, 0.25, 0.55]
 
 PPO_KWARGS = dict(
-    learning_rate=3e-4,
-    n_steps=2048,
-    batch_size=256,
-    gamma=0.99,
-    ent_coef=0.01,
+    learning_rate=1e-4,
+    n_steps=4096,
+    batch_size=512,
+    gamma=0.995,
+    ent_coef=0.02,
     n_epochs=10,
     clip_range=0.2,
     verbose=1,
+    policy_kwargs=dict(net_arch=dict(pi=[128, 128], vf=[128, 128])),
 )
 
 
@@ -165,17 +163,19 @@ class DynamicOpponentEnv(PazaakGymnasiumEnv):
 class OpponentPool:
     """
     Manages the mixed opponent pool for self-play.
-
+ 
     At any time the pool contains:
-      - simple_heuristic_agent  (always present)
-      - heuristic_agent          (always present)
+      - simple_heuristic_agent      (always present)
+      - aggressive_heuristic_agent  (always present)
+      - heuristic_agent             (always present)
       - up to MAX_POOL_SNAPSHOTS snapshot agents (loaded on demand)
-
+ 
     Sampling:
-      - 10% → simple heuristic
-      - 10% → full heuristic
-      - 80% → uniform random from snapshot list
-              (falls back to full heuristic if no snapshots yet)
+      - 15% → simple heuristic
+      - 15% → aggressive heuristic
+      - 20% → full heuristic
+      - 50% → uniform random from snapshot list
+              (falls back to a random heuristic if no snapshots yet)
     """
 
     def __init__(self):
@@ -198,17 +198,21 @@ class OpponentPool:
     def sample(self) -> Callable:
         """Return one opponent agent sampled according to OPPONENT_WEIGHTS."""
         if not self._snapshot_paths:
-            # No snapshots yet - split 50/50 between the two heuristics
-            return random.choice([simple_heuristic_agent, heuristic_agent])
-
+            # No snapshots yet - distribute evenly across all three heuristics
+            return random.choice(
+                [simple_heuristic_agent, aggressive_heuristic_agent, heuristic_agent]
+            )
+ 
         choice = random.choices(
-            ["simple", "full", "snapshot"],
+            ["simple", "aggressive", "full", "snapshot"],
             weights=OPPONENT_WEIGHTS,
             k=1,
         )[0]
-
+ 
         if choice == "simple":
             return simple_heuristic_agent
+        if choice == "aggressive":
+            return aggressive_heuristic_agent
         if choice == "full":
             return heuristic_agent
 
@@ -230,7 +234,7 @@ class OpponentPool:
 def evaluate_vs_snapshot(
     model: MaskablePPO,
     snapshot_path: str,
-    n_games: int = 500,
+    n_games: int = 2500,
     verbose: bool = True,
 ) -> dict:
     """Evaluate the current model against the most recent snapshot."""
@@ -256,7 +260,7 @@ def run_self_play(
     timesteps_per_iter: int = DEFAULT_TIMESTEPS,
     n_envs: int = 8,
     run_eval: bool = True,
-    eval_games: int = 500,
+    eval_games: int = 2500,
 ) -> MaskablePPO:
     """
     Execute the full self-play training loop.
@@ -336,7 +340,7 @@ def run_self_play(
         print(f"{'─' * 60}")
 
         # -- Train --
-        progress_cb = TrainingProgressCallback(log_freq=20_000)
+        progress_cb = TrainingProgressCallback(log_freq=100_000)
         iter_start = time.time()
 
         model.learn(
@@ -358,6 +362,22 @@ def run_self_play(
         # -- Evaluate --
         if run_eval:
             print(f"\n  === Evaluation (iteration {iteration}) ===")
+
+            print(f"  vs simple heuristic ({eval_games} games):")
+            evaluate_vs_heuristic(
+                model=model,
+                opponent_agent=simple_heuristic_agent,
+                n_games=eval_games,
+                verbose=True,
+            )
+
+            print(f"  vs aggressive heuristic ({eval_games} games):")
+            evaluate_vs_heuristic(
+                model=model,
+                opponent_agent=aggressive_heuristic_agent,
+                n_games=eval_games,
+                verbose=True,
+            )
 
             print(f"  vs full heuristic ({eval_games} games):")
             evaluate_vs_heuristic(
@@ -412,7 +432,7 @@ def _make_dynamic_env(pool_sampler: Callable) -> "DynamicOpponentEnv":
     _GLOBAL_POOL_SAMPLER = pool_sampler
 
     from sb3_contrib.common.wrappers import ActionMasker
-    from gymnasium_env import mask_fn
+    from pazaakrl.gymnasium_env import mask_fn
 
     env = DynamicOpponentEnv(pool_manager=_get_global_sampler)
     return ActionMasker(env, mask_fn)
@@ -464,7 +484,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--eval-games",
         type=int,
-        default=500,
+        default=2500,
         help="Games per evaluation (after each iteration).",
     )
     parser.add_argument(
