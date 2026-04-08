@@ -126,8 +126,8 @@ PHASE_CONFIG = {
     2: dict(
         opponent=MixedOpponent(
             [
-                (0.6, heuristic_agent),
-                (0.3, simple_heuristic_agent),
+                (0.7, heuristic_agent),
+                (0.2, simple_heuristic_agent),
                 (0.1, _random_agent),
             ]
         ),
@@ -148,7 +148,7 @@ PHASE_CONFIG = {
 def evaluate_vs_heuristic(
     model: MaskablePPO,
     opponent_agent,
-    n_games: int = 1000,
+    n_games: int = 2000,
     verbose: bool = True,
 ) -> dict:
     """
@@ -219,7 +219,7 @@ class TrainingProgressCallback(BaseCallback):
     that PazaakGymnasiumEnv includes in every terminated step.
     """
 
-    def __init__(self, log_freq: int = 20_000, verbose: int = 1):
+    def __init__(self, log_freq: int = 100_000, verbose: int = 1):
         super().__init__(verbose)
         self.log_freq = log_freq
         self._wins: list[int] = []
@@ -341,7 +341,7 @@ def train_phase(
         )
 
     # ---- Callbacks ----
-    progress_cb = TrainingProgressCallback(log_freq=20_000)
+    progress_cb = TrainingProgressCallback(log_freq=100_000)
     checkpoint_cb = CheckpointCallback(
         save_freq=max(50_000 // n_envs, 1),
         save_path=CHECKPOINT_DIR,
